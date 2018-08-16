@@ -383,63 +383,17 @@ func (h *Handler) reconcileRealms(kc *v1alpha1.Keycloak, kcClient KeycloakInterf
 	}
 
 	for name, realmPair := range realmPairsList {
-		err = h.reconcileRealm(realmPair.KcRealm, realmPair.ObjRealm, kcClient)
+		err = h.reconcileRealm(kc, kcClient, realmPair.KcRealm, realmPair.ObjRealm)
 		// This should try and reconcile all realms rather throwing an error on the first failure
 		if err != nil {
 			return errors.Wrapf(err, "error reconciling realm: %v", name)
 		}
 	}
 
-	err = h.reconcileClients(kc, kcClient, kcRealmMap)
-	if err != nil {
-		return errors.Wrap(err, "error reconciling clients")
-	}
-
 	return nil
 }
 
-func (h *Handler) reconcileClients(kc *v1alpha1.Keycloak, kcClient KeycloakInterface, realmMap map[string]*v1alpha1.KeycloakRealm) error {
-	logrus.Info("reconciling clients")
-
-	for _, realm := range realmMap {
-		clients, err := kcClient.ListClients(realm.Realm)
-		if err != nil {
-			return err
-		}
-
-		kcClients := map[string]*v1alpha1.KeycloakClient{}
-		for i := 0; i < len(clients); i++ {
-			kcClients[clients[i].ClientID] = clients[i]
-		}
-
-		clientPairsList := map[string]*v1alpha1.KeycloakClientPair{}
-		for _, client := range realm.Clients {
-			clientPairsList[client.ClientID] = &v1alpha1.KeycloakClientPair{
-				ObjClient: &client,
-				KcClient:  kcClients[client.ClientID],
-			}
-			delete(kcClients, client.ClientID)
-		}
-
-		for _, client := range kcClients {
-			clientPairsList[client.ClientID] = &v1alpha1.KeycloakClientPair{
-				KcClient:  client,
-				ObjClient: nil,
-			}
-		}
-
-		for _, clientPair := range clientPairsList {
-			err := h.reconcileClient(clientPair.KcClient, clientPair.ObjClient, realm.Realm, kcClient)
-			if err != nil {
-				return err
-			}
-		}
-	}
-
-	return nil
-}
-
-func (h *Handler) reconcileRealm(kcRealm, objRealm *v1alpha1.KeycloakRealm, kcClient KeycloakInterface) error {
+func (h *Handler) reconcileRealm(kc *v1alpha1.Keycloak, kcClient KeycloakInterface, kcRealm, objRealm *v1alpha1.KeycloakRealm) error {
 	logrus.Debugf("reconcileRealm kc realm: %#v, obj realm: %#v", kcRealm, objRealm)
 
 	if kcRealm == nil {
@@ -456,13 +410,60 @@ func (h *Handler) reconcileRealm(kcRealm, objRealm *v1alpha1.KeycloakRealm, kcCl
 				return errors.Wrap(err, "error updating keycloak realm")
 			}
 		}
+		h.reconcileClients(kc, kcClient, objRealm)
+	}
+
+	return nil
+}
+
+func (h *Handler) reconcileClients(kc *v1alpha1.Keycloak, kcClient KeycloakInterface, realm *v1alpha1.KeycloakRealm) error {
+	logrus.Infof("reconciling clients: %v", realm.Realm)
+
+	clients, err := kcClient.ListClients(realm.Realm)
+
+	logrus.Debugf("err: %v", err)
+
+	if err != nil {
+		return err
+	}
+
+	logrus.Debugf("kc lients: %v", clients)
+
+
+	kcClients := map[string]*v1alpha1.KeycloakClient{}
+	for i := 0; i < len(clients); i++ {
+		kcClients[clients[i].ClientID] = clients[i]
+	}
+
+	clientPairsList := map[string]*v1alpha1.KeycloakClientPair{}
+	for i, _ := range realm.Clients {
+		clientPairsList[realm.Clients[i].ClientID] = &v1alpha1.KeycloakClientPair{
+			ObjClient: &realm.Clients[i],
+			KcClient:  kcClients[realm.Clients[i].ClientID],
+		}
+		delete(kcClients, realm.Clients[i].ClientID)
+	}
+
+	for i, _ := range kcClients {
+		clientPairsList[kcClients[i].ClientID] = &v1alpha1.KeycloakClientPair{
+			KcClient:  kcClients[i],
+			ObjClient: nil,
+		}
+	}
+
+	for _, clientPair := range clientPairsList {
+		err := h.reconcileClient(clientPair.KcClient, clientPair.ObjClient, realm.Realm, kcClient)
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil
 }
 
 func (h *Handler) reconcileClient(kcClient, objClient *v1alpha1.KeycloakClient, realmName string, authenticatedClient KeycloakInterface) error {
-	if objClient == nil && realmName != "master" && !isDefaultClient(kcClient.ClientID) {
+	logrus.Debugf("reconcileClient realm: %v, expected %#v, actual %#v", realmName, objClient, kcClient)
+	if objClient == nil && !isDefaultClient(kcClient.ClientID) {
 		logrus.Debugf("Deleting client %s in realm: %s", kcClient.ClientID, realmName)
 		err := authenticatedClient.DeleteClient(kcClient.ID, realmName)
 		if err != nil {
@@ -470,15 +471,12 @@ func (h *Handler) reconcileClient(kcClient, objClient *v1alpha1.KeycloakClient, 
 		}
 	} else if kcClient == nil {
 		logrus.Debugf("Creating client %s in realm: %s", objClient.ClientID, realmName)
-		// if objClient.ID == "" {
-		// 	objClient.ID = uuid.New().String()
-		// }
 		err := authenticatedClient.CreateClient(objClient, realmName)
 		if err != nil {
 			return err
 		}
 	} else {
-		if !reflect.DeepEqual(kcClient, objClient) && realmName != "master" && !isDefaultClient(kcClient.ClientID) {
+		if !reflect.DeepEqual(kcClient, objClient) && !isDefaultClient(kcClient.ClientID) {
 			logrus.Debugf("Updating client %s in realm: %s", kcClient.ClientID, realmName)
 			err := authenticatedClient.UpdateClient(kcClient, objClient, realmName)
 			if err != nil {
