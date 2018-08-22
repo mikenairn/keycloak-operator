@@ -21,6 +21,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/kubernetes"
+	"github.com/imdario/mergo"
 )
 
 const (
@@ -511,8 +512,6 @@ func (h *Handler) reconcileIdentityProvider(kcIdentityProvider, specIdentityProv
 	} else {
 		//The API doesn't return the secret, so in order to stop in never being equal we just set it to the spec version
 		kcIdentityProvider.Config["clientSecret"] = specIdentityProvider.Config["clientSecret"]
-		//Ensure the internalID is set on the spec object, this is required for update requests to succeed
-		specIdentityProvider.InternalID = kcIdentityProvider.InternalID
 		if !reflect.DeepEqual(kcIdentityProvider, specIdentityProvider) {
 			logrus.Debugf("Updating identity provider %s in realm: %s", kcIdentityProvider.Alias, realmName)
 			err := authenticatedClient.UpdateIdentityProvider(specIdentityProvider, realmName)
@@ -521,6 +520,12 @@ func (h *Handler) reconcileIdentityProvider(kcIdentityProvider, specIdentityProv
 			}
 		}
 	}
+	//https://github.com/imdario/mergo/issues/24
+	fmt.Println(specIdentityProvider)
+	if err := mergo.Merge(specIdentityProvider, kcIdentityProvider); err != nil {
+		logrus.Debugf("error merging objects: %s", specIdentityProvider, kcIdentityProvider)
+	}
+	fmt.Println(specIdentityProvider)
 
 	return nil
 }

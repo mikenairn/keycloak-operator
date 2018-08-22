@@ -29,10 +29,10 @@ type KeycloakList struct {
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // crd:gen:Kind=Keycloak:Group=aerogear.org
 type Keycloak struct {
-	metav1.TypeMeta   `json:",inline"`
-	metav1.ObjectMeta `json:"metadata"`
-	Spec              KeycloakSpec   `json:"spec"`
-	Status            KeycloakStatus `json:"status,omitempty"`
+	metav1.TypeMeta       `json:",inline"`
+	metav1.ObjectMeta     `json:"metadata"`
+	Spec   KeycloakSpec   `json:"spec"`
+	Status KeycloakStatus `json:"status,omitempty"`
 }
 
 func (k *Keycloak) Defaults() {
