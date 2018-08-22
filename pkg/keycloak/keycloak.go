@@ -219,6 +219,7 @@ func (h *Handler) Handle(ctx context.Context, event sdk.Event) error {
 
 	// Only update the Keycloak custom resource if there was a change
 	if !reflect.DeepEqual(kc, kcCopy) {
+		logrus.Debug("Updating keycloak")
 		if err := sdk.Update(kcCopy); err != nil {
 			return errors.Wrap(err, "failed to update the keycloak resource")
 		}
@@ -585,6 +586,12 @@ func (h *Handler) reconcileClient(kcClient, specClient *v1alpha1.KeycloakClient,
 		}
 	}
 
+	fmt.Println(specClient)
+	if err := mergo.Merge(specClient, kcClient); err != nil {
+		logrus.Debugf("error merging objects: %s", specClient, kcClient)
+	}
+	fmt.Println(specClient)
+
 	return nil
 }
 
@@ -616,6 +623,12 @@ func (h *Handler) reconcileUser(kcUser, specUser *v1alpha1.KeycloakUser, realmNa
 			}
 		}
 	}
+
+	fmt.Println(specUser)
+	if err := mergo.Merge(specUser, kcUser); err != nil {
+		logrus.Debugf("error merging objects: %s", specUser, kcUser)
+	}
+	fmt.Println(specUser)
 
 	return nil
 }
